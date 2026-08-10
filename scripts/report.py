@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
-"""把招采猫「智能解读 / 合规审查」结果 JSON 渲染成报告（HTML / Word .docx）。
+"""把百炼®标书「智能解读 / 合规审查」结果 JSON 渲染成报告（HTML / Word .docx）。
 
 零第三方依赖：HTML 拼字符串 + 内联 CSS（卡片/徽章/统计面板）；.docx 用最小 OOXML
-（zip + document.xml，带配色/字号/底纹）。字段口径依据《招采猫Skill服务.md》附录 A/B。
+（zip + document.xml，带配色/字号/底纹）。字段口径依据《百炼®标书Skill服务.md》附录 A/B。
 被 zcm.py 的 `report` 子命令调用，也可独立运行：
     python3 report.py --in result.json --format both -o <目录> [--tender-name 招标文件名]
 """
@@ -364,8 +364,8 @@ class Report:
         nav = "".join(
             f"<a href='#{sid}'><span class='i'>{i:02d}</span><span>{esc(_toc_label(t))}</span></a>"
             for i, (sid, t) in enumerate(self.sections, 1))
-        foot = (f"<div class='foot'><span>本报告由「招采猫标书」skill 自动生成</span>"
-                f"<span class='mark'>招采猫 · {esc(self.title)}</span></div>")
+        foot = (f"<div class='foot'><span>本报告由「百炼®标书」skill 自动生成</span>"
+                f"<span class='mark'>百炼®标书 · {esc(self.title)}</span></div>")
         js = ("<script>(function(){var L=[].slice.call(document.querySelectorAll('.toc nav a'));"
               "var S=L.map(function(a){return document.querySelector(a.getAttribute('href'));});"
               "function spy(){var idx=0;for(var j=0;j<S.length;j++){"
@@ -377,9 +377,9 @@ class Report:
                 f"<meta name='viewport' content='width=device-width,initial-scale=1'>"
                 f"<title>{esc(self.title)}</title><style>{_HTML_CSS}</style></head>"
                 f"<body><div class='shell'>"
-                f"<aside class='toc'><div class='brand'>招采猫 · 标书</div>"
+                f"<aside class='toc'><div class='brand'>百炼®标书</div>"
                 f"<div class='bt'>{esc(self.title)}</div><nav>{nav}</nav>"
-                f"<div class='sfoot'>「招采猫标书」skill</div></aside>"
+                f"<div class='sfoot'>「百炼®标书」skill</div></aside>"
                 f"<main class='content'><div class='accent'>"
                 f"<i class='a'></i><i class='b'></i><i class='c'></i></div>"
                 f"<div class='inner'>{''.join(self.html)}{foot}</div></main>"

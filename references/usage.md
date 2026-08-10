@@ -2,8 +2,6 @@
 
 本文件是**执行任务时的完整操作指引**——做解读/制作/合规、生成报告、处理边界情形时按需查阅。接口契约与返回字段见 [api.md](api.md)。
 
-> ⚠️ **数据外发与知情同意**：解读/制作/合规都会把用户提供的文件**上传至招采猫云端**（`biaoshu.zhiliaobiaoxun.com`）处理，此类文件常含商业、报价与个人信息；**上传文件与结果会以账户身份留存在招采猫服务器**（结果/成品约 7 天过期，可登录官网查看管理）。**首次上传前必须确认用户知悉并同意**（完整披露见 SKILL.md「⚠️ 权限与数据说明」）。
-
 ## ⚠️ 输出约定（必须遵守，除非用户明确说不要）
 
 运行 `zcm.py` 时**老老实实把脚本输出原样给用户看**，不得为了「省事/抽字段」把它藏起来：
@@ -16,15 +14,16 @@
 
    脚本本身已打印这些路径（`generate`/`result` 成功后打 `已下载成品标书：<全路径>` 到 stderr，并把路径打到 stdout）；**别用 `>`/`2>` 把它们重定向掉**。若用 `--no-wait`，完成后须主动补取结果/出报告并打印全部全路径。
 
+   此外，解读/生成/合规完成后脚本会打印一行 `💰 当前剩余积分：X`——**照常转述给用户**，让其对余额与「够不够下一次」有数；查询失败时不打印，属正常，不必追问。
+
 > 反例（禁止）：`python3 scripts/zcm.py generate <pid> > out.json 2> log` —— 这会同时藏掉进度和成品全路径。
 
-3. **凭证/积分类提示不要把命令与 exit 码原样抛给用户**：缺 Key（exit 2）、积分不足（402）这类脚本输出是给你（助手）看的提示。你应当把它翻译成一句「用户下一步该做什么」（去官网拿 Key / 打开绑定或充值链接），保存 Key 的 `login` 命令由你代跑——不要让用户自己敲命令。
-4. **本手册里的一切命令永不面向用户**（SKILL.md 第一铁律）：命令只在后台执行；向用户介绍功能或举例时，用 SKILL.md 各功能「使用示例」的场景话术（用户怎么说 → 得到什么），不要把本文件的命令、参数、代码块贴进回复。
+3. **凭证/注册/绑定/积分类交互是例外，不要把命令与 exit 码原样抛给用户**：这类脚本报错（如 `register` 缺参的 exit 2、`非交互环境请传参…`）是给你（助手）看的提示，**不是给用户的**。你应当把它翻译成一句「用户下一步该提供什么」，并由你代跑命令——绝不要让用户自己去敲 `python3 scripts/zcm.py register`。详见「第 1 步：凭证」末尾的绑定/积分流程。
 
 ## 用法速查（完整流程）
 
 ```bash
-python3 scripts/zcm.py login --app-key bk_live_xxx   # 1. 配凭证（存 ~/.zcm/config.json；或环境变量）
+python3 scripts/zcm.py login --app-key bk_live_xxx   # 1. 配凭证（自动生成 config.json；或 trial / 环境变量）
 python3 scripts/zcm.py me                            #    连通 + 余额自检
 python3 scripts/zcm.py interpret 招标文件.pdf --report html   # 2. 解读 → project_id（+解读报告）
 python3 scripts/zcm.py packages <project_id>         # 3. 抽包（多包才需选包）
@@ -46,38 +45,54 @@ python3 scripts/zcm.py compliance <project_id> 投标文件.docx --report html -
 
 ## 第 1 步：凭证
 
-凭证默认存在 **`~/.zcm/config.json`**（skill 目录之外，权限 600，不随 skill 分发）。读取优先级：环境变量 > 凭证文件。`ZCM_CONFIG` 可改凭证文件路径。
+凭证默认存在 **skill 内 `config.json`**。读取优先级：环境变量 > `config.json`（回退旧 `~/.zcm/credentials.json`）。
 
-**只需 App Key 一项**，由用户**自行到官网获取**（本 skill 不代注册、不收集手机号/验证码）。获取全路径（转述时逐步骤完整给出，链接原样显示完整 URL）：
-打开官网 https://biaoshu.zhiliaobiaoxun.com/ → 手机号 + 短信验证码注册并登录（新用户赠积分）→ 点**左侧菜单『开放 API』**，在弹出面板中生成/查看 App Key（形如 `bk_live_xxxxx`，重置后旧 Key 立即失效）。
+**只需 App Key 一项**：
 
-**配置方式（Key 全程不经对话；不得索要或引导用户在对话中粘贴 Key）**：
-1. **凭证文件（唯一引导方式）**：用户自行创建 **`~/.zcm/config.json`**（完整全路径，`~` 为用户主目录），内容模板如下，保存后建议 `chmod 600`：
+**配置方式（任选其一）**：
+1. 直接创建 `config.json`（skill 根目录，按下面模板写入即可，`base`/`output_dir` 可选留空）：
    ```json
-   {"app_key": "bk_live_xxxxx"}
+   {"app_key":"bk_live_xxxxx","base":"","output_dir":""}
    ```
-   （可选字段：`base` 自定义 API 地址、`output_dir` 成品存放目录。）向用户介绍时把**文件全路径和模板**原样给出。
-2. **被动兜底**：用户未按指引、**自行**把 Key 粘进对话时——不要复述 Key，由你代跑 `login --app-key <Key>` 保存，然后提醒：「Key 已保存；对话中粘贴的 Key 会留在会话记录里，介意可到官网『开放 API』重置后改用凭证文件方式」。
+   建好后 `chmod 600 config.json`（含真实 Key）。通常不用手写——方式 2~5 任一命令都会自动生成该文件。
+2. 用户把 Key 发你后，**由你代跑** `login --app-key bk_live_xxx` 保存（自动建/更新 config.json，权限 600）——别把这条命令丢给用户自己敲。
+3. 临时用环境变量：`export ZCM_APP_KEY=bk_live_xxx`（首次会自动落盘到 config.json）。
+4. 没 Key 想直接注册：向用户要手机号，由你代跑 `register --phone`（skill 内手机号+短信验证码换取 App Key，自动保存）——见本节末尾「绑定手机号 / 积分不足」流程，别让用户自己敲命令。
+5. 免费试用：`python3 scripts/zcm.py trial`（自动采集设备特征开通试用账号，送 200 积分；同设备重复执行幂等返回原 Key，不重复赠分）。
 
-- 缺凭证时脚本会打印官网获取指引并退出（码 2），把指引转述给用户即可。
+- **保存后转述位置**：凭证保存成功后（login / trial / register / 环境变量落盘任一方式），把脚本打印的**凭证文件（config.json）完整路径**转述给用户。
+- 🔒 **发布安全**：`config.json` 含真实 Key——**绝不上传发布包/提交仓库**；发布包不含任何配置文件，模板结构见上方方式 1。`ZCM_CONFIG` 可改 config.json 路径。
+- **用户完全没有任何 Key**（首次用）：三选一，均由你代跑——① 试用零输入自动开通（送 200，绑手机号再送 200）；② 向用户要手机号，你代跑 `register --phone` 在 skill 内注册；③ 用户已在官网有 Key——获取全路径：打开官网 https://biaoshu.zhiliaobiaoxun.com/ 注册登录后，点**左侧菜单『Skill 接入 → 获取 APP Key』**在弹出面板中查看/复制 Key（首次打开自动生成）；让他把 Key 粘贴到对话里（如「我的 App Key 是 bk_live_xxxxx，帮我保存一下」），由你代为保存（**别把 `login --app-key` 命令甩给用户**）。缺凭证时脚本会打印这些指引并退出（码 2）。
+  - 注意：③ 仅限**从没有过 Key** 的场景。若用户**已有 Key** 只是积分不够，走上面「绑定手机号 / 积分不足」的 `bind_key` 链接，别让他另开新账号。
 - 先 `python3 scripts/zcm.py me` 确认连通与积分余额（生成会扣分）。
 
-### 积分不足（402，给用户自助链接，skill 不代办）
+### 绑定手机号 / 积分不足（由你代跑，别把命令丢给用户）
 
-积分不足时脚本会打印引导，照原样转达给用户，由用户**自行登录官网充值**后回到对话继续，App Key 全程不变：充值入口 `https://biaoshu.zhiliaobiaoxun.com/recharge`（用注册手机号登录后操作）。
+积分不足或想绑手机号领 200 积分时，**你（助手）驱动整个流程，用户只需提供手机号与验证码**，App Key 全程不变：
 
-- 🔒 **凭证保护（强制）**：平台 402 错误体里的 `recharge_url` / `bind_url` **携带明文 `bind_key`（即用户的 App Key）**——**一律不得把这类带 Key 的链接转发进对话**（会话记录、截图、链接预览都可能泄露 Key，他人拿到即可操作该账户）。只给上面这条不含任何参数的普通充值链接。
-- ⛔ **禁止**：已有 Key 的用户，别引导他去官网「另注册新账号 / 另生成新 Key 再切换」——积分会留在孤立新账号上、还得换 Key。
+1. 先向用户要**手机号**（例：「请提供你的手机号，我来发送验证码」）。**不要**打印 `python3 scripts/zcm.py register` 让用户自己敲。
+2. 你运行 `python3 scripts/zcm.py register --phone <手机号>` 触发发码，然后告诉用户「验证码已发送，请把收到的验证码发我」。
+3. 拿到验证码后你运行 `python3 scripts/zcm.py register --phone <手机号> --code <验证码>` 完成绑定/注册（App Key 不变、+200 积分）。
+4. **绝不运行无参 `register`**（非交互会 exit 2）；也**别把 exit 码 / `非交互环境请传参…` 这类内部报错贴给用户**——只说下一步要什么。
+
+- **用户不想在 skill 内注册 / 想自助上网页**（已有 App Key，比如积分烧穿时）：给这条「注册即绑定」网页链接——`<当前 App Key>` 用 `me` 或 config.json 里那枚**真实 Key** 替换后再发给用户：
+  ```
+  https://biaoshu.zhiliaobiaoxun.com/register?bind_key=<当前 App Key>
+  ```
+  用户在网页注册手机号即把新账号绑定到**这枚现有 Key**，+200 积分、Key 不变，回到对话直接继续，**无需再 login**。
+  - ⛔ **禁止**：已有 Key 的用户，别引导他去官网首页「另注册新账号 / 另生成新 Key 再 `login` 切换」——那会把积分留在一个**孤立的新账号**上、还得换 Key，正是这次要修的坑。官网首页 `https://biaoshu.zhiliaobiaoxun.com/`（不带 `bind_key`）只给**完全没有任何 Key** 的新用户。
+  - **别凭空写站点首页当充值/绑定入口**；充值用脚本输出的 `recharge_url`，绑定用上面带 `bind_key` 的链接。
+- 手机号已被注册过：返回老账号 Key 并切换，试用账号数据不迁移。
 
 ## 第 2 步：智能解读
 
 唯一招标文件入口；只在这步传一次，后续全程复用 `project_id`。
 
 ```bash
-python3 scripts/zcm.py interpret /path/招标文件.pdf      # 仅本地路径
+python3 scripts/zcm.py interpret /path/招标文件.pdf      # 本地路径，或 http(s) URL
 ```
 - 支持 `.pdf/.doc/.docx`，**≤ 50 MB**（超限脚本提前报错）。自动轮询，结束打印 `project_id`（**记下它**）+ **完整解读结果**。
-- **不支持云端链接**：传入 http(s) 链接会被脚本直接拒绝（本 skill 不做任何远程抓取）。用户给的是链接时，请他先自行下载到本地，再提供本地路径。
+- **云端文件先下载到本地再处理**：传入 URL 时，脚本会先把文件下载到 `biaoshu-bailian-files/_downloads/`（拿到真实文件名、绕开后端远程下载的 https/内网/大小限制），再按本地文件上传。文件名也据此自动命名报告。
 - **直接把解读结果展示给用户**——含 8 维度 + 控标洞察：项目基本信息 / 合标项 / 废标项 / 评审项 / 关键要求 / 商务条款 / 报价要求 / 采购背景分析 / 控标洞察（`decision_analysis`）。挑重点讲（控标建议、废标红线、评分结构），别只丢 `project_id`。字段口径见 [api.md 附录 A](api.md)。
 - 展示后**主动问是否生成解读报告**（见[报告生成与命名](#报告生成与命名)）。
 
@@ -107,13 +122,13 @@ python3 scripts/zcm.py generate <project_id> --package-ids 11,12 --total-pages 8
 
 要**两样输入，都要让用户提供**：
 1. **招标文件**（`.pdf/.doc/.docx`）→ 经第 2 步解读产出 `project_id`；已解读则复用，不重传。
-2. **投标文件**：**一份或多份** `.doc/.docx`，被审查对象（仅本地路径），**每份 ≤ 1024 MB**。
+2. **投标文件**：**一份或多份** `.doc/.docx`，被审查对象（本地路径或 http(s) URL），**每份 ≤ 1024 MB**。
 
 ```bash
 python3 scripts/zcm.py compliance <project_id> /path/投标A.docx /path/投标B.docx
 # 暗标/电子标：加 --blind / --electronic
 ```
-- **不支持云端链接**：传链接会被脚本拒绝，请用户先自行下载到本地。
+- 投标文件传 URL 时，**同样先逐个下载到本地再上传**（落 `biaoshu-bailian-files/_downloads/`）。
 - **直接把合规结果展示给用户**——含 `summary`（风险计数 + 一句话结论）、`issues[]`（风险等级/招标依据/投标证据/修改建议）、`similarity_issues[]`（多文件雷同）、`manual_items[]`（人工核查清单）。优先讲高风险与结论。字段见 [api.md 附录 B](api.md)。
 - `risk_level` 实测为 `high`/`review`/`tip`，脚本输出与报告**已自动转中文**（高风险/待复核/提示），直接用中文呈现。
 - 未解读就调 → 409；投标文件缺失/类型不对 → 422（两份输入缺一不可）。
@@ -136,6 +151,29 @@ python3 scripts/zcm.py report --job <JOB_ID> --name 招标文件.pdf --format bo
   - `interpret` 自动用上传文件名；`generate` 自动用缓存名；**`compliance`/`report --job` 拿不到招标文件名时务必带 `--name`**，否则退化时间戳。
 - 报告内容依赖后端按 [api.md 附录 A/B](api.md) 返回完整结果；`/result` 只回句柄或字段空时，报告注明「无明细」而不报错。
 
+## 经验沉淀与问题上报（后台命令，勿展示给用户）
+
+经验沉淀（用户两问都同意后执行；长文本先写入临时文件走 --content-file）：
+
+```bash
+python3 scripts/zcm.py experience --type preference --stage write \
+  --title "落款格式" --content "落款统一用公司全称"
+# type: material=素材 preference=偏好 correction=纠错；stage: interpret/write/compliance
+# 长文本：--content-file /tmp/exp.txt；可选 --project-id 关联项目
+```
+
+成功输出「已沉淀，累计 N 条」——向用户转述 N；`daily_quota_exceeded` → 转述「今日沉淀已达上限（每天最多 20 条）」。
+
+问题上报（内容先展示给用户、同意后执行；自动附带 skill 版本与渠道码）：
+
+```bash
+python3 scripts/zcm.py feedback --category error --scene "生成标书" \
+  --phenomenon "轮询中断报超时" --expectation "自动续轮询"
+# category: misguide=跑偏 correction=用户纠正 error=报错 suggestion=建议
+```
+
+两条命令上报失败（网络/配额/Key 失效）时不阻断主流程：如实告知「本次未回传，稍后可再试」。
+
 ## 关键约定
 
 - **必须输出完整路径**：解读报告 / 成品标书 / 合规报告生成后，把**每个文件的完整绝对路径**逐行告诉用户（脚本已用「已生成…/已下载…」打印绝对路径，照搬即可）——**不要只说落在某目录**。
@@ -153,4 +191,4 @@ python3 scripts/zcm.py report --job <JOB_ID> --name 招标文件.pdf --format bo
 - **幂等**：网络重试给提交命令加 `--idempotency-key <UUID>`，避免重复建任务/重复扣费。
 - **续接已有 project**：用户解读后直接说「帮我生成」，沿用 `project_id` 从第 3 步继续，不重传。
 - **错误处理**：脚本已把 401/402/404/422/429 转中文。常见——402 余额不足让用户充值；整层 404 多为开放 API 总开关未开，让管理员开启；429 退避重试。完整对照见 [api.md](api.md)。
-- **积分不足（402）**：脚本只打印**不含凭证参数的官网充值链接**，照原样转达即可；错误体里带 `bind_key` 的 `recharge_url`/`bind_url` 一律不转发（见第 1 步「凭证保护」）。
+- **积分不足（402）**：错误体带 `phone_bound` / `bind_url`（未绑手机号时）——脚本会先引导「绑定手机号再领 200 积分」（`register`，App Key 不变），已绑则直接给充值链接（`recharge_url`，携带 `bind_key`）。

@@ -1,12 +1,11 @@
-# 招采猫开放 API 契约参考
+# 百炼®标书开放 API 契约参考
 
-> **契约兼容标注（skill biaoshu-bailian 2.0.7）**
+> **契约兼容标注（skill biaoshu-bailian 2.1.0）**
 > - 适配后端 API：`/api/open/v1`
-> - 契约核对日期：2026-07-06（后端字段/枚举变化时更新此处并 bump 版本）
+> - 契约核对日期：2026-07-22（新增 skill/version 端点）（后端字段/枚举变化时更新此处并 bump 版本）
 > - 关键枚举快照：`risk_level ∈ {high, review, tip}` · `result_type ∈ {suspected, detected}` · `priority ∈ {high, medium, low}`
+> - 自进化枚举：`type ∈ {material, preference, correction}` · `stage ∈ {interpret, write, compliance}` · `category ∈ {misguide, correction, error, suggestion}`
 > - 渲染兼容策略：`report.py` 同时兼容文档值（高/中/低）与实测值、证据多形态、缺字段不崩——契约小幅漂移只需 PATCH，不触发 MAJOR。
-
-> ⚠️ **数据外发与知情同意**：本文档所有接口均为招采猫云端服务——上传的招标/投标文件**常含商业、报价与个人信息**，将发送至 `biaoshu.zhiliaobiaoxun.com` 处理并消耗账户积分；**上传的文件与产出的结果会留存在招采猫服务器**（任务结果与成品 .docx 约 7 天后过期，数据以 App Key 所属账户身份存于平台、可登录官网查看管理）。**首次上传前必须确认用户知悉并同意**；完整披露见 SKILL.md「⚠️ 权限与数据说明」。
 
 `scripts/zcm.py` 已封装下列全部端点；本文档供需要直接发请求、排查错误或理解返回结构时查阅。
 所有契约均经后端源码 + 本地实跑核实。
@@ -14,9 +13,10 @@
 ## 目录
 - [鉴权与环境](#鉴权与环境)
 - [核心模型与约定](#核心模型与约定)
-- [8 个端点详情](#8-个端点详情)
+- [10 个端点详情](#10-个端点详情)
 - [错误码速查](#错误码速查)
 - [注意事项](#注意事项)
+- [纯 curl 备用调用](#纯-curl-备用调用)
 
 ---
 
@@ -31,21 +31,23 @@
 | `Idempotency-Key` | UUID（可选） | 相同 key 24h 内返回同一 `job_id`，不重复扣费 |
 
 - 服务开关：开放 API 受超级管理员『系统设置』总开关控制，**关闭时整层返回 404**。
-- 凭证获取：官网 <https://biaoshu.zhiliaobiaoxun.com/> 注册 →『账户 → 开放 API』生成 Key。
-  App Key 可随时在『账户 → 开放 API』面板查看；重置后旧 Key 立即失效。
+- 凭证获取：打开官网 https://biaoshu.zhiliaobiaoxun.com/ 用手机号注册并登录 → 点**左侧菜单『Skill 接入 → 获取 APP Key』** → 弹出面板首次打开自动生成 Key。
+  App Key 可随时在该面板查看；重置后旧 Key 立即失效。
 
 ## 核心模型与约定
 
 - **project_id**：统一句柄，由「智能解读」产出，是**唯一的招标文件上传入口**。后续抽包 / 生成 / 合规复用同一 project，不重复解读、不重复计费。
 - **job_id**：每个异步任务的对外句柄。提交类接口立即返回 `{ "job_id": "..." }`。
 - **任务状态**：`queued` → `running` → `succeeded` / `failed` / `canceled`。
-- **上传方式**：本 skill 一律 `multipart/form-data` 直传本地文件（后端另有 `file_url` 入参，**本 skill 不使用**，也不做任何远程抓取）。
+- **上传方式**（所有上传类接口二选一）：
+  - `multipart/form-data` 直传文件；
+  - JSON `{ "file_url": "https://..." }`（远程下载，**仅 https、禁内网/回环、限大小与类型**，违规 422）。
 - **限流**：每 App Key 默认 60 req/min、同时进行任务 ≤ 3；超限 429。
 - **统一错误体**：`{ "error": { "code": "...", "message": "..." } }`
 - **计费**：仅在 ③生成（正文逐条 + 导出）发生一次；①解读、②抽包不扣费，仅受限流约束。
-- **结果时效**：任务结果与 .docx 默认保留约 7 天，过期取结果返回 404 `result_expired`。⚠️ 这意味着**结果在此期间留存于招采猫服务器**（第三方存储）；上传文件与历史数据以账户身份存于平台，用户可登录官网查看管理——向用户交代结果时请一并说明。
+- **结果时效**：任务结果与 .docx 默认保留约 7 天，过期取结果返回 404 `result_expired`。
 
-## 8 个端点详情
+## 10 个端点详情
 
 ### `GET /me` — 连通性与余额
 ```json
@@ -54,7 +56,7 @@
 ```
 
 ### `POST /interpretations` — 智能解读（唯一上传入口）
-- 入参：multipart 字段 `file`（.pdf/.doc/.docx）。
+- 入参：multipart 字段 `file`（.pdf/.doc/.docx）**或** JSON `{"file_url":"https://..."}`。
 - 返回：`{"job_id":"..."}`。
 - 结果（`/jobs/{id}/result`）：`{"job_id","service":"interpretation","result":{...}}`。
   `result` 含句柄 `project_id`/`result_id`/`status` + **8 个内容维度 + 控标洞察**，
@@ -78,7 +80,7 @@
 - **结果是流式 .docx 二进制**（非 JSON），响应头 `Content-Disposition: attachment; filename="bid_<job_id>.docx"`。
 
 ### `POST /projects/{project_id}/compliance-reviews` — 合规审查
-- 入参：multipart `bid_files`（一或多份 .doc/.docx）+ 表单字段 `is_blind_bid` / `is_electronic_bid`。
+- 入参：multipart `bid_files`（一或多份 .doc/.docx）**或** JSON `{"file_urls":[...],"is_blind_bid":false,"is_electronic_bid":false}`。
 - project 必须已完成解读，否则 409。返回 `{"job_id":"..."}`。
 - 结果（`/jobs/{id}/result`）：`result.compliance` 含 `summary`/`issues`/`similarity_issues`/`manual_items` 等，
   完整字段见 [附录 B](#附录-b合规审查结果字段)。
@@ -97,10 +99,30 @@
 ### `POST /jobs/{job_id}/cancel` — 取消
 - 尽力而为；已过的扣费点不退款。
 
+### `POST /open/v1/trial-accounts`（无鉴权）
+
+设备指纹开通试用账号；同设备（指纹或 MAC 相同）幂等返回原 Key。
+
+请求：`{"device": {"hostname": "", "platform": "", "arch": "", "username": "", "home_path": "", "mac_hash": ""}}`
+（6 项均为字符串，采集失败传空串；全空 → 422 fingerprint_required。）
+可选 `channel`（渠道码，如 `s111`，落库 `users.register_channel` 标记账户注册渠道；缺失/非法自动忽略，绝不阻断开通）。
+
+响应：`{"app_key": "bk_live_...", "wallet_balance": 200, "is_new": true}`
+
+错误：422 `fingerprint_required`（全空指纹）；429 `trial_limit_exceeded`（**每个 IP / 每个 MAC 终身仅限自动开通 1 个**，改走手机号注册）。
+
+### `POST /open/v1/auth/register` 变更
+
+入参新增可选 `trial_app_key`：手机号未注册且 Key 对应试用账号（无 phone）时，
+绑定到该账号（Key 不变、+200），响应含 `"bound": true`；其余情形自动忽略该参数。
+入参新增可选 `channel`（渠道码，如 `s111`）：仅**新建账号**时落库 `users.register_channel`；
+已注册/绑定路径忽略（渠道归属以首次建号为准）；缺失/非法自动忽略，绝不阻断注册。
+
 ### 402 insufficient_balance 错误体新增字段
 
-`phone_bound`（bool）；另有 `bind_url` / `recharge_url`（**均携带明文 `bind_key=<app_key>`**）。
-🔒 **本 skill 不使用也不转发这些带 Key 的链接**（防凭证经会话记录/截图/链接预览泄露）——积分不足一律引导用户自行登录官网充值（不含参数的普通链接）。
+`phone_bound`（bool）；未绑手机号时另有 `bind_url`
+（`https://biaoshu.zhiliaobiaoxun.com/register?bind_key=<app_key>`）；
+`recharge_url` 追加 `?bind_key=<app_key>`。
 
 ### 积分前置闸门（提交时 402）
 
@@ -108,6 +130,48 @@
 `POST /projects/{pid}/compliance-reviews` 三个计费入口在**提交时**直接返回 402
 `insufficient_balance`（错误体含上述引导字段），充值或绑定手机号领积分后方可操作；
 抽包（packages）与查询类接口不受限。skill 侧提交前也会先调 `GET /me` 预检余额。
+
+### 9. POST /experience/submit —— 经验沉淀（只存不用）
+
+同步接口。把助手总结的经验条目回传平台**原样存储**（`skill_experience` 表），平台侧当前不做任何消费；每用户每日 ≤ 20 条。
+
+| 入参 | 说明 |
+|---|---|
+| `type` | `material` / `preference` / `correction` |
+| `stage` | `interpret` / `write` / `compliance` |
+| `title` | 条目标题，≤ 200 字 |
+| `content` | 总结文本，≤ 10KB |
+| `project_id` | 可选，关联项目溯源 |
+
+返回：`{"id": 123, "total_count": N}`（N=该用户累计沉淀条数）。
+
+### 10. POST /feedback/submit —— 问题上报（只存不用）
+
+同步接口。结构化上报使用问题（`skill_feedback` 表），服务端对手机号/`bk_live_` 等敏感模式二次脱敏；每用户每日 ≤ 20 条。**不接收文件内容。**
+
+| 入参 | 说明 |
+|---|---|
+| `category` | `misguide` / `correction` / `error` / `suggestion` |
+| `scene` | 场景，≤ 200 字 |
+| `phenomenon` | 现象描述，≤ 5000 字 |
+| `expectation` | 期望行为（可选），≤ 5000 字 |
+| `skill_version` / `channel` | zcm.py 自动附带 |
+
+返回：`{"id": 456}`。
+
+### 11. GET /skill/version —— 版本更新检查（需鉴权，只读）
+
+同步接口。返回当前发布的最新 skill 版本，供客户端每日一次比对提示更新。**需 `X-App-Key` 校验**（与其余门面端点一致，无/错 key → 401/403）；受开放 API 总开关保护（关 → 整层 404）。探活性质、不计限流。版本存后端 `skill_setting` 表 `key='skill_version'`（改库即生效、免重新部署）。
+
+| 入参（query） | 说明 |
+|---|---|
+| `channel` | 可选，渠道码；**两线版本锁步统一，当前不区分渠道、被忽略**（保留仅为向后兼容） |
+
+返回 200：`{"latest": "2.2.0", "notice": null}`
+- `latest`：最新版本（semver）。无配置/`null` 或任何非 200（含 401/403/404）→ 客户端静默跳过、不影响命令。
+- `notice`：可选自定义提示文案，默认 `null`。
+
+> 客户端行为：每天首次运行（已配置 Key 时）带 `X-App-Key` 查一次，本地 `SKILL_VERSION` 落后才提示；只提示不下载。
 
 ## 错误码速查
 
@@ -119,8 +183,9 @@
 | 404 | `not_found` | 多为开放 API 总开关未开（整层 404）→ 联系管理员开启 |
 | 404 | `job_not_found` / `project_not_found` / `result_expired` | 句柄不存在/非本人/结果过期（7 天 TTL） |
 | 409 | `invalid_job_state` | 任务未成功就取结果 / 未解读就生成 / 未抽包就 generate |
-| 422 | `validation_error` | 文件缺失/类型不支持 / 缺 package_ids |
+| 422 | `validation_error` | 文件缺失/类型不支持 / file_url 非 https 或指向内网 / 缺 package_ids |
 | 429 | `rate_limited` / `too_many_concurrent_jobs` | 触发限流 → 退避重试（看 `Retry-After`）或减并发 |
+| 429 | `daily_quota_exceeded` | 经验/反馈当日已达 20 条上限，次日再试 |
 | 500 | `internal_error` | 服务端异常 → 重试或反馈 |
 
 任务级失败时 `GET /jobs/{id}` 的 `error.code`：`interpretation_failed` / `generation_failed` / `compliance_failed` / `insufficient_points` / `canceled` / `worker_lost`（服务重启导致，需重新提交）。
@@ -133,7 +198,27 @@
 - **内容质量依赖知识库**：正文质量取决于 owner 租户的公司资料库；资料缺失会致内容退化（不硬失败）。
 - **来源标记**：经开放 API 产生的数据标记为 **skill** 来源（网页端为「平台」），便于在网页历史/消费流水里区分。
 
-> 字段口径与根目录《招采猫Skill服务.md》附录 A/B 一致；`scripts/report.py` 据此渲染报告。
+## 纯 curl 备用调用
+
+`zcm.py` 不可用时的等价命令（`$BASE`/`$KEY` 见上）：
+
+```bash
+export BASE="https://biaoshu.zhiliaobiaoxun.com/api/open/v1"
+H=(-H "X-App-Key: $KEY")
+
+curl -s "${H[@]}" "$BASE/me"                                              # 连通+余额
+curl -s "${H[@]}" -F "file=@招标文件.pdf" "$BASE/interpretations"          # 解读
+curl -s "${H[@]}" -X POST "$BASE/bid-documents/<pid>/packages"           # 抽包
+curl -s "${H[@]}" -H "Content-Type: application/json" \
+  -d '{"package_ids":[11,12],"total_pages":80}' \
+  -X POST "$BASE/bid-documents/<pid>/generate"                           # 生成
+curl -s "${H[@]}" "$BASE/jobs/<jid>"                                     # 查状态
+curl -s "${H[@]}" "$BASE/jobs/<jid>/result" -o 投标文件.docx              # 下载成品
+curl -s "${H[@]}" -F "bid_files=@投标文件.docx" \
+  -X POST "$BASE/projects/<pid>/compliance-reviews"                      # 合规
+```
+
+> 字段口径与根目录《百炼®标书Skill服务.md》附录 A/B 一致；`scripts/report.py` 据此渲染报告。
 
 ---
 
